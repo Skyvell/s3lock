@@ -136,3 +136,20 @@ Check who owns a lock after write:
 5. If there is a match -> delete all object versions.
 
 Problem: Delete will fail if new versions are addded in between 2) and 5). E.g. two processes try to delete the object at the same time, each adding a delete tag.
+
+
+## New approach:
+
+### Lock unoccupied (empty list of versions) :
+1. Write to lock.
+2. Check if you got the lock.
+3. Update attributes and return nil.
+
+### Lock timed out:
+1. Get all versions.
+2. Check if still timed out.
+3. Delete all versions.
+4. Try to acquire lock according to "lock unoccpied".
+
+### Lock occupied:
+1. 
