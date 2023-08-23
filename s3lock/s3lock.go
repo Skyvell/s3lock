@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
+	"log"
 	"strings"
 	"time"
 
@@ -56,10 +56,12 @@ func NewS3Lock(cfg aws.Config, lockName string, bucketName string, key string, t
 
 func (l *S3Lock) AcquireLock(ctx context.Context) error {
 	versions, err := utils.GetAllObjectVersions(ctx, l.Client, l.BucketName, l.Key)
+	log.Printf("Versions: %+v", versions)
 	if err != nil {
 		return fmt.Errorf("(AcquireLock: Error when calling getAllObjectVersions: %w.", err)
 	}
 	lockState, _ := l.getLockState(ctx, versions)
+	log.Printf("lockState: %+v", lockState)
 
 	switch lockState {
 
@@ -77,6 +79,8 @@ func (l *S3Lock) AcquireLock(ctx context.Context) error {
 			l.LockCount = 0
 			return fmt.Errorf("Lock was not acquired.")
 		}
+		l.LockCount++
+		return nil
 
 	case LockTimedOut, LockUnoccupied:
 		_, _ = utils.DeleteObjectVersions(ctx, l.Client, l.BucketName, versions)
@@ -224,12 +228,14 @@ func (l *S3Lock) getLockState(ctx context.Context, objectVersions []types.Object
 		Key:       &l.Key,
 		VersionId: objectVersions[len(objectVersions)-1].VersionId,
 	})
+	log.Printf("HeadObject error: %s", err)
 	if err != nil {
 		return LockStateUnkown, fmt.Errorf("getLockState (1): Error when calling HeadObject: %w.", err)
 	}
 
 	// Check if this lock instance is the owner of the lock.
 	lockOwner := resp.Metadata["lockowner"]
+	log.Printf("Lock owner: %s", lockOwner)
 	if lockOwner == l.Uuid {
 		return LockAccuired, nil
 	}
@@ -242,11 +248,13 @@ func (l *S3Lock) getLockState(ctx context.Context, objectVersions []types.Object
 		Key:       &l.Key,
 		VersionId: objectVersions[0].VersionId,
 	})
+	log.Printf("HeadObject error: %+v", err)
 	if err != nil {
 		return LockStateUnkown, fmt.Errorf("getLockState (2): Error when calling HeadObject: %w.", err)
 	}
 
-	timeout, err := strconv.Atoi(resp.Metadata["timeout"])
+	timeout, err := time.ParseDuration(resp.Metadata["timeout"])
+	log.Printf("Conversion: %s", err)
 	if err != nil {
 		return LockStateUnkown, fmt.Errorf("getLockState: Error when converting timeout string to integer: %w.", err)
 	}
@@ -255,6 +263,6 @@ func (l *S3Lock) getLockState(ctx context.Context, objectVersions []types.Object
 		return LockTimedOut, nil
 	}
 
-	return LockStateUnkown, nil
+	return LockOccupied, nil
 
 }
