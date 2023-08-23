@@ -55,7 +55,7 @@ func NewS3Lock(cfg aws.Config, lockName string, bucketName string, key string, t
 }
 
 func (l *S3Lock) AcquireLock(ctx context.Context) error {
-	versions, err := l.getAllObjectVersions(ctx)
+	versions, err := utils.GetAllObjectVersions(ctx, l.Client, l.BucketName, l.Key)
 	if err != nil {
 		return fmt.Errorf("(AcquireLock: Error when calling getAllObjectVersions: %w.", err)
 	}
@@ -79,7 +79,7 @@ func (l *S3Lock) AcquireLock(ctx context.Context) error {
 		}
 
 	case LockTimedOut, LockUnoccupied:
-		_, _ = l.deleteObjectVersions(ctx, versions)
+		_, _ = utils.DeleteObjectVersions(ctx, l.Client, l.BucketName, versions)
 		_, err = l.putLock(ctx)
 		if err != nil {
 			return fmt.Errorf("AcquireLock (): Error when calling putLock: %w", err)
@@ -90,6 +90,7 @@ func (l *S3Lock) AcquireLock(ctx context.Context) error {
 			return nil
 		}
 	}
+
 	return fmt.Errorf("Lock is not available.")
 }
 
@@ -141,7 +142,7 @@ func (l *S3Lock) AcquireLockWithRetry(ctx context.Context, timeout time.Duration
 }
 
 func (l *S3Lock) ReleaseLock(ctx context.Context) error {
-	versions, err := l.getAllObjectVersions(ctx)
+	versions, err := utils.GetAllObjectVersions(ctx, l.Client, l.BucketName, l.Key)
 	if err != nil {
 		return fmt.Errorf("ReleaseLock: Error when calling getAllObjectVersions: %w.", err)
 	}
@@ -157,7 +158,7 @@ func (l *S3Lock) ReleaseLock(ctx context.Context) error {
 	// Decrement lockCounts and release lock if 0.
 	l.LockCount--
 	if l.LockCount == 0 {
-		_, err := l.deleteObjectVersions(ctx, versions)
+		_, err := utils.DeleteObjectVersions(ctx, l.Client, l.BucketName, versions)
 		if err != nil {
 			return fmt.Errorf("ReleaseLock: Lock could not be released: %w", err)
 		}
@@ -183,7 +184,7 @@ func (l *S3Lock) putLock(ctx context.Context) (*s3.PutObjectOutput, error) {
 
 func (l *S3Lock) isCurrentLockOwner(ctx context.Context) (bool, error) {
 	// Get all information about current lock versions.
-	versions, err := l.getAllObjectVersions(ctx)
+	versions, err := utils.GetAllObjectVersions(ctx, l.Client, l.BucketName, l.Key)
 	if err != nil {
 		return false, fmt.Errorf("isCurrentLockOwner: Error when calling getAllObjectVersions: %w.", err)
 	}
@@ -256,54 +257,4 @@ func (l *S3Lock) getLockState(ctx context.Context, objectVersions []types.Object
 
 	return LockStateUnkown, nil
 
-}
-
-func (l *S3Lock) getAllObjectVersions(ctx context.Context) ([]types.ObjectVersion, error) {
-	resp, err := l.Client.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
-		Bucket: &l.BucketName,
-		Prefix: &l.Key,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("getAllObjectVersions: Error when calling ListObjectVersions: %w.", err)
-	}
-
-	return resp.Versions, nil
-}
-
-func (l *S3Lock) deleteObjectVersions(ctx context.Context, objectVersions []types.ObjectVersion) (*s3.DeleteObjectsOutput, error) {
-	// Construct a slice of object versions to be deleted.
-	objects := []types.ObjectIdentifier{}
-	for _, object := range objectVersions {
-		tmpObject := types.ObjectIdentifier{
-			Key:       object.Key,
-			VersionId: object.VersionId,
-		}
-		objects = append(objects, tmpObject)
-	}
-
-	// Delete the object versions.
-	resp, err := l.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-		Bucket: &l.BucketName,
-		Delete: &types.Delete{
-			Objects: objects,
-		},
-	})
-	if err != nil {
-		return resp, fmt.Errorf("deleteObjectVersions: Error when calling DeleteObjects: %w.", err)
-	}
-
-	return resp, nil
-}
-
-func (l *S3Lock) getObject(ctx context.Context, versionId *string) (*s3.GetObjectOutput, error) {
-	resp, err := l.Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket:    &l.BucketName,
-		Key:       &l.Key,
-		VersionId: versionId,
-	})
-	if err != nil {
-		return resp, fmt.Errorf("getObject: Error when calling GetObject %s: %w.", *versionId, err)
-	}
-
-	return resp, nil
 }
