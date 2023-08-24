@@ -2,10 +2,12 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 )
 
 func GetAllObjectVersions(ctx context.Context, client *s3.Client, bucketName string, key string) ([]types.ObjectVersion, error) {
@@ -21,6 +23,12 @@ func GetAllObjectVersions(ctx context.Context, client *s3.Client, bucketName str
 }
 
 func DeleteObjectVersions(ctx context.Context, client *s3.Client, bucketName string, objectVersions []types.ObjectVersion) (*s3.DeleteObjectsOutput, error) {
+	// Would return an error when calling DeleteObjects.
+	// But we allow this.
+	if len(objectVersions) == 0 {
+		return &s3.DeleteObjectsOutput{}, nil
+	}
+
 	// Construct a slice of object versions to be deleted.
 	objects := []types.ObjectIdentifier{}
 	for _, object := range objectVersions {
@@ -45,15 +53,37 @@ func DeleteObjectVersions(ctx context.Context, client *s3.Client, bucketName str
 	return resp, nil
 }
 
-func GetObject(ctx context.Context, client *s3.Client, bucketName string, key string, versionId *string) (*s3.GetObjectOutput, error) {
+// Implement: Do not return an error if object not found. add found bool return value.
+func GetObject(ctx context.Context, client *s3.Client, bucketName string, key string, versionId *string) (*s3.GetObjectOutput, bool, error) {
 	resp, err := client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket:    &bucketName,
 		Key:       &key,
 		VersionId: versionId,
 	})
 	if err != nil {
-		return resp, fmt.Errorf("getObject: Error when calling GetObject %s: %w.", *versionId, err)
+		var ae smithy.APIError
+		if errors.As(err, &ae) && ae.ErrorCode() == "NoSuchVersion" {
+			return resp, false, nil
+		}
+		return resp, false, fmt.Errorf("GetObject: Error when calling GetObject %s: %w.", *versionId, err)
 	}
 
-	return resp, nil
+	return resp, true, nil
+}
+
+func HeadObject(ctx context.Context, client *s3.Client, bucketName string, key string, versionId *string) (*s3.HeadObjectOutput, bool, error) {
+	resp, err := client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket:    &bucketName,
+		Key:       &key,
+		VersionId: versionId,
+	})
+	if err != nil {
+		var ae smithy.APIError
+		if errors.As(err, &ae) && ae.ErrorCode() == "NotFound" {
+			return resp, false, nil
+		}
+		return resp, false, fmt.Errorf("HeadObject: Error when calling GetObject %s: %w.", *versionId, err)
+	}
+
+	return resp, true, nil
 }
