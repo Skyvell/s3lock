@@ -60,42 +60,23 @@ func (l *S3Lock) AcquireLock(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("(AcquireLock: Error when calling getAllObjectVersions: %w.", err)
 	}
-	lockState, _ := l.getLockState(ctx, versions)
+
+	lockState, err := l.getLockState(ctx, versions)
+	if err != nil {
+		return fmt.Errorf("AcquireLock: Error getting lockState: %w.", err)
+	}
 	log.Printf("lockState: %+v", lockState)
 
 	switch lockState {
-
 	case LockOccupied:
 		return fmt.Errorf("AcquireLock: Lock is occupied.")
-
 	case LockAccuired:
-		_, err = l.putLock(ctx)
-		if err != nil {
-			l.LockCount = 0
-			return fmt.Errorf("LockState: %v - Lock-file could not be uploaded: %w", lockState, err)
-		}
-		isOwner, _ := l.isCurrentLockOwner(ctx)
-		if !isOwner {
-			l.LockCount = 0
-			return fmt.Errorf("Lock was not acquired.")
-		}
-		l.LockCount++
-		return nil
-
+		return l.handleAcquiredState(ctx)
 	case LockTimedOut, LockUnoccupied:
-		_, _ = utils.DeleteObjectVersions(ctx, l.Client, l.BucketName, versions)
-		_, err = l.putLock(ctx)
-		if err != nil {
-			return fmt.Errorf("AcquireLock (): Error when calling putLock: %w", err)
-		}
-		isLockOwner, _ := l.isCurrentLockOwner(ctx)
-		if isLockOwner {
-			l.LockCount++
-			return nil
-		}
+		return l.handleUnoccupiedOrTimedOutState(ctx, versions)
+	default:
+		return fmt.Errorf("AcquireLock: Lock is occupied.")
 	}
-
-	return fmt.Errorf("Lock is not available.")
 }
 
 // Get all versions from lock.
@@ -160,7 +141,7 @@ func (l *S3Lock) ReleaseLock(ctx context.Context) error {
 	}
 
 	// Decrement lockCounts and release lock if 0.
-	l.LockCount--
+	l.decrementLockCount()
 	if l.LockCount == 0 {
 		_, err := utils.DeleteObjectVersions(ctx, l.Client, l.BucketName, versions)
 		if err != nil {
@@ -170,6 +151,55 @@ func (l *S3Lock) ReleaseLock(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (l *S3Lock) handleAcquiredState(ctx context.Context) error {
+	_, err := l.putLock(ctx)
+	if err != nil {
+		l.resetLockCount()
+		return fmt.Errorf("Lock file could not be uploaded: %w", err)
+	}
+
+	isOwner, err := l.isCurrentLockOwner(ctx)
+	if err != nil {
+		return fmt.Errorf("Could not get current lock owner: %w", err)
+	}
+	if !isOwner {
+		l.resetLockCount()
+		return errors.New("Lock was not acquired")
+	}
+
+	l.incrementLockCount()
+	return nil
+}
+
+func (l *S3Lock) handleUnoccupiedOrTimedOutState(ctx context.Context, versions []types.ObjectVersion) error {
+	_, err := utils.DeleteObjectVersions(ctx, l.Client, l.BucketName, versions)
+	if err != nil {
+		return fmt.Errorf("AcquireLock (): Error when deleting object versions: %w", err)
+	}
+	_, err = l.putLock(ctx)
+	if err != nil {
+		return fmt.Errorf("AcquireLock (): Error when calling putLock: %w", err)
+	}
+	isLockOwner, _ := l.isCurrentLockOwner(ctx)
+	if isLockOwner {
+		l.incrementLockCount()
+		return nil
+	}
+	return fmt.Errorf("Lock was not accuired.")
+}
+
+func (l *S3Lock) resetLockCount() {
+	l.LockCount = 0
+}
+
+func (l *S3Lock) incrementLockCount() {
+	l.LockCount++
+}
+
+func (l *S3Lock) decrementLockCount() {
+	l.LockCount--
 }
 
 func (l *S3Lock) lockTimeExpired(lastModified time.Time, timeout time.Duration) bool {
@@ -197,13 +227,12 @@ func (l *S3Lock) isCurrentLockOwner(ctx context.Context) (bool, error) {
 	}
 
 	// Get the object for the "master" version; the oldest version.
-	resp, err := l.Client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket:    &l.BucketName,
-		Key:       &l.Key,
-		VersionId: versions[len(versions)-1].VersionId,
-	})
+	resp, found, err := utils.GetObject(ctx, l.Client, l.BucketName, l.Key, versions[len(versions)-1].VersionId)
 	if err != nil {
 		return false, fmt.Errorf("isCurrentLockOwner: Error when calling HeadObject: %w.", err)
+	}
+	if !found {
+		return false, nil
 	}
 
 	// Check if this lock instance is the owner of the lock.
@@ -223,14 +252,13 @@ func (l *S3Lock) getLockState(ctx context.Context, objectVersions []types.Object
 
 	// Case 2: LockAccuired if this instance is the current owner of the lock.
 	// Get the object for the "master" version; the oldest version.
-	resp, err := l.Client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket:    &l.BucketName,
-		Key:       &l.Key,
-		VersionId: objectVersions[len(objectVersions)-1].VersionId,
-	})
+	resp, found, err := utils.HeadObject(ctx, l.Client, l.BucketName, l.Key, objectVersions[len(objectVersions)-1].VersionId)
 	log.Printf("HeadObject error: %s", err)
 	if err != nil {
 		return LockStateUnkown, fmt.Errorf("getLockState (1): Error when calling HeadObject: %w.", err)
+	}
+	if !found {
+		return LockStateUnkown, nil
 	}
 
 	// Check if this lock instance is the owner of the lock.
@@ -243,14 +271,13 @@ func (l *S3Lock) getLockState(ctx context.Context, objectVersions []types.Object
 	// Case 3: LockTimedout if timeout has expired.
 	// Objectversion slice is ordered with newest entry
 	// at index 0.
-	resp, err = l.Client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket:    &l.BucketName,
-		Key:       &l.Key,
-		VersionId: objectVersions[0].VersionId,
-	})
+	resp, found, err = utils.HeadObject(ctx, l.Client, l.BucketName, l.Key, objectVersions[0].VersionId)
 	log.Printf("HeadObject error: %+v", err)
 	if err != nil {
 		return LockStateUnkown, fmt.Errorf("getLockState (2): Error when calling HeadObject: %w.", err)
+	}
+	if !found {
+		return LockStateUnkown, nil
 	}
 
 	timeout, err := time.ParseDuration(resp.Metadata["timeout"])
