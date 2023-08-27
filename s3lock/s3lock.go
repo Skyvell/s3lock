@@ -149,7 +149,7 @@ func (l *S3Lock) syncLockState(ctx context.Context) error {
 	}
 	l.lockState.entries = lockEntries
 
-	// If there are none entries. The lock is free.
+	// If there are non entries. The lock is free.
 	if len(lockEntries) == 0 {
 		l.lockState.state = LockUnoccupied
 		return nil
@@ -178,7 +178,6 @@ func (l *S3Lock) syncLockState(ctx context.Context) error {
 	// If none of the above applies. Then lock is occupied.
 	l.lockState.state = LockOccupied
 	return nil
-
 }
 
 func (l *S3Lock) acquireAcquiredLock(ctx context.Context) error {
