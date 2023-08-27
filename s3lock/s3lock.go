@@ -64,8 +64,8 @@ func (l *S3Lock) AcquireLock(ctx context.Context) error {
 		return fmt.Errorf("AcquireLock: Error when syncing block state: %w.", err)
 	}
 
-	//log.Printf("lockState: %+v", l.lockState.state)
-
+	// Depending on lock state there are some small differences
+	// when acquiring a lock.
 	switch l.lockState.state {
 	case LockOccupied:
 		return fmt.Errorf("AcquireLock: Lock is occupied.")
