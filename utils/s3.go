@@ -53,7 +53,6 @@ func DeleteObjectVersions(ctx context.Context, client *s3.Client, bucketName str
 	return resp, nil
 }
 
-// Implement: Do not return an error if object not found. add found bool return value.
 func GetObject(ctx context.Context, client *s3.Client, bucketName string, key string, versionId *string) (*s3.GetObjectOutput, bool, error) {
 	resp, err := client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket:    &bucketName,
