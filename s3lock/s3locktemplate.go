@@ -2,8 +2,8 @@ package s3lock
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -63,7 +63,8 @@ func (l *S3Lock) AcquireLock(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("AcquireLock: Error when syncing block state: %w.", err)
 	}
-	log.Printf("lockState: %+v", l.lockState.state)
+
+	//log.Printf("lockState: %+v", l.lockState.state)
 
 	switch l.lockState.state {
 	case LockOccupied:
@@ -74,22 +75,72 @@ func (l *S3Lock) AcquireLock(ctx context.Context) error {
 		return l.acquireTimedOutLock(ctx)
 	case LockUnoccupied:
 		return l.acquireUnoccupiedLock(ctx)
-	default:
-		return fmt.Errorf("AcquireLock: Lock is occupied.")
+	}
+	return fmt.Errorf("AcquireLock: Unknown error. lockstate: %v.", l.lockState.state)
+}
+
+func (l *S3Lock) AcquireLockWithRetry(ctx context.Context, timeout time.Duration) error {
+	startTime := time.Now()
+	for {
+		if time.Since(startTime) >= timeout {
+			return errors.New("AcquireLockWithRetry timed out.")
+		}
+
+		err := l.AcquireLock(ctx)
+		if err != nil {
+			sleepDuration, err := utils.GenerateRandomNumberInInterval(minNumber, maxNumber)
+			if err != nil {
+				return fmt.Errorf("Failed to generate random number: %w", err)
+			}
+			time.Sleep(time.Duration(sleepDuration) * time.Millisecond)
+			continue
+		}
+
+		return nil
 	}
 }
 
-//	func (l *S3Lock) AcquireLockWithRetry(ctx context.Context) error {
-//		panic("Not implemented")
-//	}
-//
-//	func (l *S3Lock) ReleaseLock(ctx context.Context) error {
-//		panic("Not implemented")
-//	}
-//
-//	func (l *S3Lock) RemoveLockIfOwner(ctx context.Context) error {
-//		panic("Not implemented")
-//	}
+func (l *S3Lock) ReleaseLock(ctx context.Context) error {
+	err := l.syncLockState(ctx)
+	if err != nil {
+		return fmt.Errorf("ReleaseLock: Error when syncing block state: %w.", err)
+	}
+
+	if l.lockState.state != LockAcquired {
+		l.resetLockCount()
+		return fmt.Errorf("This lock instance no longer owns the lock.")
+	}
+
+	// Decrement lockCounts and release lock if 0.
+	l.decrementLockCount()
+	if l.LockCount == 0 {
+		_, err := utils.DeleteObjectVersions(ctx, l.Client, l.BucketName, l.lockState.entries)
+		if err != nil {
+			return fmt.Errorf("ReleaseLock: Lock could not be released: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (l *S3Lock) RemoveLockIfOwner(ctx context.Context) error {
+	err := l.syncLockState(ctx)
+	if err != nil {
+		return fmt.Errorf("RemoveLockIfOwner: Error when syncing block state: %w.", err)
+	}
+
+	if l.lockState.state != LockAcquired {
+		return fmt.Errorf("RemoveLockIfOwner: This lock instance is not the lock owner.")
+	}
+
+	_, err = utils.DeleteObjectVersions(ctx, l.Client, l.BucketName, l.lockState.entries)
+	if err != nil {
+		return fmt.Errorf("RemoveLockIfOwner: Lock could not be removed: %w", err)
+	}
+
+	return nil
+}
+
 func (l *S3Lock) syncLockState(ctx context.Context) error {
 	// Get all lock entries from S3 and store in the lock instance.
 	lockEntries, err := utils.GetAllObjectVersions(ctx, l.Client, l.BucketName, l.Key)
@@ -121,6 +172,7 @@ func (l *S3Lock) syncLockState(ctx context.Context) error {
 	}
 	if timedOut {
 		l.lockState.state = LockTimedOut
+		return nil
 	}
 
 	// If none of the above applies. Then lock is occupied.
@@ -143,7 +195,7 @@ func (l *S3Lock) acquireAcquiredLock(ctx context.Context) error {
 
 	if l.lockState.state != LockAcquired {
 		l.resetLockCount()
-		return fmt.Errorf("acquireAcquiredLock: Lock was not acquired. LockState after sync was: %s", l.lockState.state)
+		return fmt.Errorf("acquireAcquiredLock: Lock was not acquired. LockState after sync was: %v", l.lockState.state)
 	}
 
 	l.incrementLockCount()
@@ -162,7 +214,7 @@ func (l *S3Lock) acquireUnoccupiedLock(ctx context.Context) error {
 	}
 
 	if l.lockState.state != LockAcquired {
-		return fmt.Errorf("acquireUnOccupiedLock: Lock was not acquired. LockState after sync was: %s", l.lockState.state)
+		return fmt.Errorf("acquireUnOccupiedLock: Lock was not acquired. LockState after sync was: %v", l.lockState.state)
 	}
 
 	l.incrementLockCount()
@@ -186,7 +238,7 @@ func (l *S3Lock) acquireTimedOutLock(ctx context.Context) error {
 	}
 
 	if l.lockState.state != LockAcquired {
-		return fmt.Errorf("acquiretimedOutLock: Lock was not acquired. LockState after sync was: %s", l.lockState.state)
+		return fmt.Errorf("acquiretimedOutLock: Lock was not acquired. LockState after sync was: %v", l.lockState.state)
 	}
 
 	l.incrementLockCount()
@@ -205,7 +257,6 @@ func (l *S3Lock) hasTimedOut(ctx context.Context) (bool, error) {
 
 	// Parse metadata timeout from the entry.
 	timeout, err := time.ParseDuration(resp.Metadata["timeout"])
-	log.Printf("Conversion: %s", err)
 	if err != nil {
 		return false, fmt.Errorf("hasTimedOut: Could not parse timeout duration: %w.", err)
 	}
