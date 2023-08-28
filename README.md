@@ -10,7 +10,7 @@ With the task understood, the next step was to understand the tools; understand 
 
 # 2. Design
 
-**Atomicity**
+**Atomicity**:
 My first plan was to use conditional reads/writes in order to guarantee atomicity, but it turned out that functionality has been decrepit; the newer SDK no longer supports this. I talked to Mario about this, and he suggested we turn on versioning for the bucket and treat it like a state machine. What is important is the very first, and last entry in the bucket. The first entry serves as the “master”, indicating who owns the lock. The last entry is important, since it tells us when the lock was last modified; which is needed to determine if a lock has timed out or not.
 
 **Aquiring a lock flow**:
@@ -38,13 +38,13 @@ I had an basic idea of which attributes and methods to include in the struct bef
 
 A few challanged along the way:
 
-**Error handling**
+**Error handling**:
 Some of the AWS sdk helper functions returned an error when I did not want an error, which made it hard to check and handle all errors in the code. E.g. HeadObject return an error if the object does not exist. I had to learn how to check for these kind of specific error in my helper functions and allow them. Instead I added a return value "found" in addtion to the other values, to cover my case.
 
-**How to pass error down to the user and keep the stack trace**
+**How to pass error down to the user and keep the stack trace**:
 I did some research here. It seems to be the norm in Golang to indicate in which function the error occured, use %w to wrap the error into the new error and pass it along up the stack. I tried to follow this, but I'm not sure if I did it correctly. Could use some feedback here.
 
-**Channels, wg and go routines**
+**Channels, wg and go routines**:
 I've not worked much with go routines, wait groups and channels so I had to reasearch a bit how they work. I wanted to use them in the unittests to simulate multiple threads competing for the same lock.
 
 
