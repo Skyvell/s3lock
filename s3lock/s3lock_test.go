@@ -72,11 +72,11 @@ func TestReleaseLockNotOwned(t *testing.T) {
 
 	// Act - acquire lock.
 	err := lock1.AcquireLock(ctx)
-
-	// Assert - acquire lock.
 	if err != nil {
 		t.Fatalf("AcquireLock failed: %v", err)
 	}
+
+	// Assert - acquire lock.
 	err = lock1.syncLockState(ctx)
 	if err != nil {
 		t.Fatalf("Failed to sync lock state: %s", err)
