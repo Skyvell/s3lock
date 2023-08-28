@@ -1,155 +1,63 @@
-# s3lock
+# Development of distributed looking mechanism using S3
 
-# 1. Understanding the problem
+# 1. Understanding the problem and tools
 
 ## File looks in Linux
 
-### Mandatory locks
-- Kernel maintains **data structures** for keeping track of file locks. This typically involves inode structures, which represent files.
-- Processes communicate their intention to lock or unlock a file to the kernel using **system calls**. Done with "mand" command.
+In order to get an overview, and some inspiration on how to implement a file locking mechanism in S3, the problem instructions suggested looking into how traditional file locking mechanisms work. Since I’m most familiar with Linux, I used it for reference. I mostly used ChatGPT4 for information gathering; this gave me a concise to-the-point overview on how it works.
 
-Lock types:
-- **Read lock**: Multiple processes can hold read locks on a file simultaneously, but a write lock will be blocked until all read locks are released.
-- **Write lock**: If a process holds a write lock on a file, no other process can acquire a read or write lock on that file until the original lock is released.
+With the task understood, the next step was to understand the tools; understand them enough to make good design decisions. To get an overview of S3 I also used chatGPT4, but more up to date information was required here so I had to read through the AWS docs as well.
 
-What happends if a process tries to lock a file that is already locked:
-1. The process is put to sleep by the kernel.
-2. When a file is unlocked the kernel wakes up one or more of the sleeping processes.
+# 2. Design
 
-Queue system for processes waiting to lock and write/read a file?
+**Atomicity**
+My first plan was to use conditional reads/writes in order to guarantee atomicity, but it turned out that functionality has been decrepit; the newer SDK no longer supports this. I talked to Mario about this, and he suggested we turn on versioning for the bucket and treat it like a state machine. What is important is the very first, and last entry in the bucket. The first entry serves as the “master”, indicating who owns the lock. The last entry is important, since it tells us when the lock was last modified; which is needed to determine if a lock has timed out or not.
 
-## AWS S3
+**Aquiring a lock flow**:
+1. Get lock state.
+2. Analyse state to see if lock is available.
+3. If lock is avaiable, try to claim lock.
+4. Get lock state.
+5. Analyse the new state to see if we acquired the lock or not.
 
-Data is is stored as **Objects** in **buckets**.
+**Releasing a lock flow**:
+1. Get lock state.
+2. If lock is no longer owned by this lock instance -> release lock locally.
+3. If it's owned by lockinstace -> decrement lock count locally.
+4. If lockcount reaches zero -> delete all lockentries included in the lock state from 1).
 
-**objects**
-Each **object typically** includes:
-- Data.
-- Globally unique identifier.
-- Metadata.
+**Lock ownership and timeout**:
+To keep track of which instance owns which lockfile a uuid is assined to each lock instance upon initialization. The same uuid is included in the metadata of any lockfile this instance pushes to the bucket. A timeout is also specified when a lock instance is initialized; this timeout is also included as metadata in the lockfile uploaded. The rationale to include the timeout is so that every other processes accessing the lock can know when the lock has timed out. Reentrancy count is kept locally since only the local process needs to know this.
 
-Objects are immutable. They must be overwritten if you want to change them.
+**Graceful exit**:
+A RemoveLockIfOwner is included in the design. This should be run with defer after creating a lock instance, to make sure that the lock is released even if the code panics. It will whipe the lock clean if ran. Using defer on on ReleaseLock after every AquireLock should also be feasable, but can be tricky to keep track of.
 
-**Buckets**:
-- Equivalent of a folder.
-- Nested buckets not supported.
-- Globally unique names within AWS S3 ecosystem.
+# 3. Development
 
-How does S3 handle concurrent write and reads?
+I had an basic idea of which attributes and methods to include in the struct before I started to code. But as I coded I noticed the functions became quite long and a bit hard to read, and some code was a bit repetetive. So after the first functional codebase I split the code up in smaller pieces, refactored and wrote helper functions to make the code a bit more testable, readable and easier to maintain.
 
+A few challanged along the way:
 
-# 2. Setting up environment
+**Error handling**
+Some of the AWS sdk helper functions returned an error when I did not want an error, which made it hard to check and handle all errors in the code. E.g. HeadObject return an error if the object does not exist. I had to learn how to check for these kind of specific error in my helper functions and allow them. Instead I added a return value "found" in addtion to the other values, to cover my case.
 
-1. Created AWS account.
-2. Created an S3 bucket.
-3. Created an IAM user with full permissions pertaining to S3.
-4. Installed aws-cli. Configured aws-cli with access key, secret access key and region.
-5. Installed go, aws-toolkit and draw.io extensions.
+**How to pass error down to the user and keep the stack trace**
+I did some research here. It seems to be the norm in Golang to indicate in which function the error occured, use %w to wrap the error into the new error and pass it along up the stack. I tried to follow this, but I'm not sure if I did it correctly. Could use some feedback here.
 
-Note: I created the user and S3 bucket directly in the aws management console, but after looking into the aws-toolkit extension I could as well have done it directly in VS code.
-
-
-# 3. Designing the library
-
-## Acquiring a lock
-If the lock instance already has the lock: 
-1. Increment local lockCount.
-
-If the lock instance does not have the lock:
-1. Try to create the lockfile only if it does not exist (use PutObject with input.SetIfNoneMatch("*")).
-2. If above operation failed. Check if the current lock has timed out. If it has, try to acquire it (see handling timeouts).
-
-Question: After incrementing the total lockCount, should the file be updated, to reset the timeout? This could potentially block the lock if a user of the library code implements the code wrong.
-
-## Releasing a lock
-1. Decrement local lockCount.
-2. If lockCount = 0, delete the lockfile in S3.
-
-Potential problem: What if the operation took longer than the lock timeout and another process acquired the lock? It could remove the lock from another process.
-
-Solution: Check that the process still owns the lock in S3.
-
-## Handling timeouts 
-1. Get the object from the bucket and check if it has timed out.
-2. If the object has timed out, save the Etag.
-3. Make a conditional rewrite of the object. Condition: Etags match. This to make sure that the object has not been changed between the API calls, ensuring atomicity.
-
-## Handling re-entrancy
-- Each lock instance is competing for the lock.
-- Attributes: lockAcquired bool, lockCount int, guid int.
-
-## Logging and troubleshooting
-- Keep guid as metadata.
-- Keep guid as attribute in lock.
-- Log when: acquiring, releasing.
-
-## Settings
-- Keep bucketName and lockObjectName in seperate settings file for global settings.
-
-## Additional thoughts 
-Implementing this in Dynamodb would be far less cumbersome since it supports conditional writes to a higher degree. Meaning it would be a lot easier to maintain atomicity. I also beleive it would result in less and more readable code; making it more maintainable.
+**Channels, wg and go routines**
+I've not worked much with go routines, wait groups and channels so I had to reasearch a bit how they work. I wanted to use them in the unittests to simulate multiple threads competing for the same lock.
 
 
-# 4. Challanges along the way.
+# 4. Testing and debugging 
 
-## Atomicity
-It turns out that there is no way at all to do conditional writes in sdk version2 (to my knowledge), which makes it hard to guarantee atomicity. The method I planned to use (use PutObject with input.SetIfNoneMatch("*")) seems to be decrepit. I spent a lot of time trying to find alternative ways of doing it, but did not find any.
+The testing I've done cover some basic things. It should be more exstensive before going into any kind of real use.
+I should probably test AquireLock, ReleaseLock, AquireLockWithTimout to see if every conditional and error gets reached.
 
-I settled for doing it as good as I can with the tools I got and this is what I did:
+To test and debug the library I used a few different tools:
 
-E.g. Acquiring a lock:
-1. Check if the lock is available. If it is available, move on to step 2.
-2. Upload a file with with a metadata field of "lockowner", this is an attribute of the lock instance.
-3. Sleep for a specified amount of time. Retreive metadata about the lockfile. If the uuid of the lock instance and the "lockowner" metadata fields match. Then the lock has been acquired.
+1. Unit-tests.
+1. Logs.
+1. ChatGPT4.
+1. AWS console.
 
-This does not guarantee atomicity, but its the best I could think of without a conditional writes feature.
-
-## Attempt to get atomicity with bucket versioning
-
-### Research behaviour of operations with versioning enabled
-
-Object versioning behaviour:
-
-object_v1, object_v2, delete_marker_v3, object_v4 ...
-
-Deleting objects:
-
-**DeleteObject**: Can only delete one version of an object at a time.
-**DeleteObjects**: Can specify a xml file with all versions to delete in one call. Gives back a list of failed deletes.
-
-
-### Acquring a lock
-
-If lock file does not exist:
-1. Write the lockfile.
-
-Check who owns a lock after write:
-1. List all versions of an object.
-2. Sort all versions based on "last modified".
-3. Check the owner of the first version of the object. If this matches the with the owner of the lock instance --> lock acquired.
-
-### Releasing a lock
-1. Delete object --> this will add a "delete tag" as the next version.
-2. List all versions of the object.
-3. Sort all versions based on "last modified".
-4. Check that the owner of the first "delete tag" is the same as the owner of the lock instance.
-5. If there is a match -> delete all object versions.
-
-Problem: Delete will fail if new versions are addded in between 2) and 5). E.g. two processes try to delete the object at the same time, each adding a delete tag.
-
-
-## New approach:
-
-### Lock unoccupied (empty list of versions) :
-1. Write to lock.
-2. Check if you got the lock.
-3. Update attributes and return nil.
-
-### Lock timed out:
-1. Get all versions.
-2. Check if still timed out.
-3. Delete all versions.
-4. Try to acquire lock according to "lock unoccpied".
-
-### Lock occupied:
-1. 
+Where applicable I used ChatGPT to quality check my code: improvements suggestions, find faulty logic etc. In addition, I used unit-tests in combination with logging to find bugs in code that did not behave as expected. I also used the AWS console to check the metadata of buckets etc.
