@@ -1,4 +1,4 @@
-module github.com/skyvell/locks
+module github.com/skyvell/locksv2
 
 go 1.21.0
 
