@@ -261,7 +261,7 @@ func (l *S3Lock) hasTimedOut(ctx context.Context) (bool, error) {
 	}
 
 	// Check if enough time has passed for expiry.
-	if l.lockTimeHasExpired(*l.lockState.entries[0].LastModified, time.Duration(timeout)*time.Second) {
+	if l.lockTimeHasExpired(*l.lockState.entries[0].LastModified, time.Duration(timeout)) {
 		return true, nil
 	}
 
