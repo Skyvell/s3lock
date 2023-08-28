@@ -47,6 +47,10 @@ I did some research here. It seems to be the norm in Golang to indicate in which
 **Channels, wg and go routines**:
 I've not worked much with go routines, wait groups and channels so I had to reasearch a bit how they work. I wanted to use them in the unittests to simulate multiple threads competing for the same lock.
 
+**Concurrent API calls**:
+Every time the lock-instance fetches the lock state a maximum of 3 API calls are made. Two of these could be made to run concurrently.
+So there is some room for optimization here.
+
 
 # 4. Testing and debugging 
 
