@@ -87,4 +87,10 @@ Where applicable I used ChatGPT to quality check my code: improvements suggestio
 
 # 5. Additional thoughts and improvements
 
-It should be possible to make sure that we only have one file (the master file) representing the lock state instead of the both the first and last file. When processes put a lock file in order to try to claim the lock, if they fail to claim the lock, they could delete their file again. But there are different scenarios too that I'd have to look into.
+- It should be possible to make sure that we only have one file (the master file) representing the lock state instead of the both the first and last file. When processes put a lock file in order to try to claim the lock, if they fail to claim the lock, they could delete their file again. But there are different scenarios too that I'd have to look into.
+
+- Additional testing. 
+
+- Documenting usage of code in readme.
+
+- Docstrings for functions and structs.
