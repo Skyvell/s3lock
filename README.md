@@ -15,7 +15,7 @@ go get github.com/skyvell/locksv2/s3lock
 Here we try to acquire the lock, execute some code if the lock was acquired and then release the lock.
 If the code panics the lock will be released.
 
-```
+```go
 package main
 
 import (
