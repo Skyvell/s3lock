@@ -10,7 +10,7 @@ With the task understood, the next step was to understand the tools; understand 
 
 # 2. Design
 
-![Overview](diagrams/overview.drawio.png.png)
+![overview](diagrams/overview.drawio.png.png)
 
 
 ![State transitions](diagrams/state_transitions.drawio.png)
