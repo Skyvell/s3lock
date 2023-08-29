@@ -2,7 +2,7 @@
 
 # 1. Understanding the problem and tools
 
-## File looks in Linux
+## File locks in Linux
 
 In order to get an overview, and some inspiration on how to implement a file locking mechanism in S3, the problem instructions suggested looking into how traditional file locking mechanisms work. Since I’m most familiar with Linux, I used it for reference. I mostly used ChatGPT4 for information gathering; this gave me a concise to-the-point overview on how it works.
 
@@ -31,24 +31,26 @@ And this diagram shows how the lock transitions through the different states:
 ![State transitions](../diagrams/state_transitions.drawio.png)
 
 
-**Aquiring a lock flow**:
-1. Get lock state.
+## 
+
+**Aquiring a lock flow (client side)**:
+1. Get lockstate.
 2. Analyse state to see if lock is available.
 3. If lock is avaiable, try to claim lock.
-4. Get lock state.
+4. Get lockstate.
 5. Analyse the new state to see if we acquired the lock or not.
 
-**Releasing a lock flow**:
-1. Get lock state.
+**Releasing a lock flow (client side)**:
+1. Get lockstate.
 2. If lock is no longer owned by this lock instance -> release lock locally.
 3. If it's owned by lockinstace -> decrement lock count locally.
-4. If lockcount reaches zero -> delete all lockentries included in the lock state from 1).
+4. If lockcount reaches zero -> delete all lockentries included in the lockstate from 1).
 
 **Lock ownership and timeout**:
-To keep track of which instance owns which lockfile a uuid is assined to each lock instance upon initialization. The same uuid is included in the metadata of any lockfile this instance pushes to the bucket. A timeout is also specified when a lock instance is initialized; this timeout is also included as metadata in the lockfile uploaded. The rationale to include the timeout is so that every other processes accessing the lock can know when the lock has timed out. It also allows for setting a custom timeout for each lock instance. Reentrancy count is kept locally since only the local process needs to know this.
+To keep track of which instance owns which lock-file a uuid is assined to each lock instance upon initialization. The same uuid is included in the metadata of any lock-file this instance pushes to the bucket. A timeout is also specified when a lock instance is initialized; this timeout is also included as metadata in the lock-file uploaded. The rationale to include the timeout is so that every other processes accessing the lock can know when the lock has timed out. It also allows for setting a custom timeout for each lock instance. Re-entrancy count is kept locally since only the local process needs to know this.
 
 **Graceful exit**:
-A RemoveLockIfOwner is included in the design. This should be run with defer after creating a lock instance, to make sure that the lock is released even if the code panics. It will whipe the lock clean if ran. Using defer on on ReleaseLock after every AquireLock should also be feasable, but can be tricky to keep track of.
+A RemoveLockIfOwner method is included in the design. This should be run with defer after creating a lock instance, to make sure that the lock is released even if the code panics. It will whipe the lock clean if ran. Using defer on on ReleaseLock after every AquireLock should also be feasable, but can be tricky to keep track of.
 
 # 3. Development
 
@@ -63,10 +65,10 @@ Some of the AWS sdk helper functions returned an error when I did not want an er
 I did some research here. It seems to be the norm in Golang to indicate in which function the error occured, use %w to wrap the error into the new error and pass it along up the stack. I tried to follow this, but I'm not sure if I did it correctly. Could use some feedback here.
 
 **Channels, wg and go routines**:
-I've not worked much with go routines, wait groups and channels so I had to reasearch a bit how they work. I wanted to use them in the unittests to simulate multiple threads competing for the same lock.
+I've not worked much with go-routines, wait groups and channels so I had to reasearch a bit how they work. I wanted to use them in the unittests to simulate multiple threads competing for the same lock.
 
 **Concurrent API calls**:
-Every time the lock-instance fetches the lock state a maximum of 3 API calls are made. Two of these could be made to run concurrently.
+Every time the lock-instance fetches the lockstate a maximum of 3 API calls are made. Two of these could be made to run concurrently.
 So there is some room for optimization here.
 
 
@@ -87,7 +89,7 @@ Where applicable I used ChatGPT to quality check my code: improvements suggestio
 
 # 5. Additional thoughts and improvements
 
-- It should be possible to make sure that we only have one file (the master file) representing the lock state instead of the both the first and last file. When processes put a lock file in order to try to claim the lock, if they fail to claim the lock, they could delete their file again. But there are different scenarios too that I'd have to look into.
+- While constructing the diagras I thought it should be possible to make sure that we only have one file (the master file) representing the lockstate instead of the both the first and last file. When processes put a lock file in order to try to claim the lock, if they fail to claim the lock, they could delete their file again. But there are different scenarios too that I'd have to look into. Something to think about.
 
 - Additional testing. 
 
