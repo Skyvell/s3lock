@@ -17,21 +17,16 @@ Multiple clients complete for the distributed lock in S3 which is in the form of
 
 ![overview](diagrams/overview.drawio.png)
 
-
-## State transitions
-
-The lock can exist in mutiple states. The state transitioms are shown in the diagram below.
-
-![State transitions](diagrams/state_transitions.drawio.png)
-
-## State representation in S3
-
-The state 
-
-![State representation in S3](diagrams/bucket_representation.drawio.png)
+## Test
 
 **Atomicity**:
 My first plan was to use conditional reads/writes in order to guarantee atomicity, but it turned out that functionality has been decrepit; the newer SDK no longer supports this. I talked to Mario about this, and he suggested we turn on versioning for the bucket and treat it like a state machine. What is important is the very first, and last entry in the bucket. The first entry serves as the “master”, indicating who owns the lock. The last entry is important, since it tells us when the lock was last modified; which is needed to determine if a lock has timed out or not.
+
+Here the different lock states are shown:
+![State transitions](diagrams/state_transitions.drawio.png)
+
+These states are determined in the follwing way:
+![State representation in S3](diagrams/bucket_representation.drawio.png)
 
 **Aquiring a lock flow**:
 1. Get lock state.
