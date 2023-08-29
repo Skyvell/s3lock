@@ -10,6 +10,14 @@ With the task understood, the next step was to understand the tools; understand 
 
 # 2. Design
 
+![Overview](diagrams/overview.drawio.png.png)
+
+
+![State transitions](diagrams/state_transitions.drawio.png)
+
+
+![State representation in S3](diagrams/bucket_representation.drawio.png)
+
 **Atomicity**:
 My first plan was to use conditional reads/writes in order to guarantee atomicity, but it turned out that functionality has been decrepit; the newer SDK no longer supports this. I talked to Mario about this, and he suggested we turn on versioning for the bucket and treat it like a state machine. What is important is the very first, and last entry in the bucket. The first entry serves as the “master”, indicating who owns the lock. The last entry is important, since it tells us when the lock was last modified; which is needed to determine if a lock has timed out or not.
 
@@ -27,7 +35,7 @@ My first plan was to use conditional reads/writes in order to guarantee atomicit
 4. If lockcount reaches zero -> delete all lockentries included in the lock state from 1).
 
 **Lock ownership and timeout**:
-To keep track of which instance owns which lockfile a uuid is assined to each lock instance upon initialization. The same uuid is included in the metadata of any lockfile this instance pushes to the bucket. A timeout is also specified when a lock instance is initialized; this timeout is also included as metadata in the lockfile uploaded. The rationale to include the timeout is so that every other processes accessing the lock can know when the lock has timed out. Reentrancy count is kept locally since only the local process needs to know this.
+To keep track of which instance owns which lockfile a uuid is assined to each lock instance upon initialization. The same uuid is included in the metadata of any lockfile this instance pushes to the bucket. A timeout is also specified when a lock instance is initialized; this timeout is also included as metadata in the lockfile uploaded. The rationale to include the timeout is so that every other processes accessing the lock can know when the lock has timed out. It also allows for setting a custom timeout for each lock instance. Reentrancy count is kept locally since only the local process needs to know this.
 
 **Graceful exit**:
 A RemoveLockIfOwner is included in the design. This should be run with defer after creating a lock instance, to make sure that the lock is released even if the code panics. It will whipe the lock clean if ran. Using defer on on ReleaseLock after every AquireLock should also be feasable, but can be tricky to keep track of.
