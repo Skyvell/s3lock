@@ -18,10 +18,13 @@ Multiple clients complete for the distributed lock in S3 which is in the form of
 **Atomicity**:
 My first plan was to use conditional reads/writes in order to guarantee atomicity, but it turned out that functionality has been decrepit; the newer SDK no longer supports this. I talked to Mario about this, and he suggested we turn on versioning for the bucket and treat it like a state machine. What is important is the very first, and last entry in the bucket. The first entry serves as the “master”, indicating who owns the lock. The last entry is important, since it tells us when the lock was last modified; which is needed to determine if a lock has timed out or not.
 
+
 This diagram shows how the states are represented in the S3 bucket:
 
 ![State representation in S3](diagrams/bucket_representation.drawio.png)
 Here the different lock states, and state transitions are shown:
+
+
 
 
 And this diagram shows how the lock tranition through the different states:
