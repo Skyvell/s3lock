@@ -10,11 +10,23 @@ With the task understood, the next step was to understand the tools; understand 
 
 # 2. Design
 
+
+## Overview
+
+Multiple clients complete for the distributed lock in S3 which is in the form of a versioned bucket.
+
 ![overview](diagrams/overview.drawio.png)
 
 
+## State transitions
+
+The lock can exist in mutiple states. The state transitioms are shown in the diagram below.
+
 ![State transitions](diagrams/state_transitions.drawio.png)
 
+## State representation in S3
+
+The state 
 
 ![State representation in S3](diagrams/bucket_representation.drawio.png)
 
