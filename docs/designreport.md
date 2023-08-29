@@ -12,7 +12,7 @@ With the task understood, the next step was to understand the tools; understand 
 
 Multiple clients complete for the distributed lock in S3 which is in the form of a versioned bucket.
 
-![overview](diagrams/overview.drawio.png)
+![overview](../diagrams/overview.drawio.png)
 
 
 **Atomicity**:
@@ -21,14 +21,14 @@ My first plan was to use conditional reads/writes in order to guarantee atomicit
 
 This diagram shows how the states are represented in the S3 bucket:
 
-![State representation in S3](diagrams/bucket_representation.drawio.png)
+![State representation in S3](../diagrams/bucket_representation.drawio.png)
 
 
 
 
 And this diagram shows how the lock transitions through the different states:
 
-![State transitions](diagrams/state_transitions.drawio.png)
+![State transitions](../diagrams/state_transitions.drawio.png)
 
 
 **Aquiring a lock flow**:
