@@ -10,25 +10,24 @@ With the task understood, the next step was to understand the tools; understand 
 
 # 2. Design
 
-
-## Overview
-
 Multiple clients complete for the distributed lock in S3 which is in the form of a versioned bucket.
 
 ![overview](diagrams/overview.drawio.png)
 
-## Test
 
 **Atomicity**:
 My first plan was to use conditional reads/writes in order to guarantee atomicity, but it turned out that functionality has been decrepit; the newer SDK no longer supports this. I talked to Mario about this, and he suggested we turn on versioning for the bucket and treat it like a state machine. What is important is the very first, and last entry in the bucket. The first entry serves as the “master”, indicating who owns the lock. The last entry is important, since it tells us when the lock was last modified; which is needed to determine if a lock has timed out or not.
 
-Here the different lock states are shown:
+This diagram shows how the states are represented in the S3 bucket:
+
+![State representation in S3](diagrams/bucket_representation.drawio.png)
+Here the different lock states, and state transitions are shown:
+
+
+And this diagram shows how the lock tranition through the different states:
 
 ![State transitions](diagrams/state_transitions.drawio.png)
 
-These states are determined in the follwing way:
-
-![State representation in S3](diagrams/bucket_representation.drawio.png)
 
 **Aquiring a lock flow**:
 1. Get lock state.
@@ -82,3 +81,8 @@ To test and debug the library I used a few different tools:
 1. AWS console.
 
 Where applicable I used ChatGPT to quality check my code: improvements suggestions, find faulty logic etc. In addition, I used unit-tests in combination with logging to find bugs in code that did not behave as expected. I also used the AWS console to check the metadata of buckets etc.
+
+
+# 5. Additional thoughts and improvements
+
+It should be possible to make sure that we only have one file (the master file) representing the lock state instead of the both the first and last file. When processes put a lock file in order to try to claim the lock, if they fail to claim the lock, they could delete their file again. But there are different scenarios too that I'd have to look into.
