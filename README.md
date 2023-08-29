@@ -22,12 +22,11 @@ My first plan was to use conditional reads/writes in order to guarantee atomicit
 This diagram shows how the states are represented in the S3 bucket:
 
 ![State representation in S3](diagrams/bucket_representation.drawio.png)
-Here the different lock states, and state transitions are shown:
 
 
 
 
-And this diagram shows how the lock tranition through the different states:
+And this diagram shows how the lock transitions through the different states:
 
 ![State transitions](diagrams/state_transitions.drawio.png)
 
