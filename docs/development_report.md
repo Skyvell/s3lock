@@ -96,3 +96,4 @@ Where applicable I used ChatGPT to quality check my code: improvements suggestio
 - Documenting usage of code in readme.
 
 - Docstrings for functions and structs.
+
