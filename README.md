@@ -31,13 +31,14 @@ const key = "keyForlock"
 
 func main() {
     ctx := context.Background()
-    
+
     // Load the aws configuration you set up with aws cli.
-	config, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		panic("Could not load config.")
-	}
-    // Acquire the lock, execute some code and release the lock.
+    config, err := config.LoadDefaultConfig(ctx)
+    if err != nil {
+        panic("Could not load config.")
+    }
+    
+    // Create a lock instance.
     l1 := s3lock.NewS3Lock(config, "myLock", bucketName, key, 30*time.Second)
 
     // Make sure the lock is released if code panics.
@@ -50,6 +51,8 @@ func main() {
     }
 
     // Execute some code if lock was acquired.
+    // ....
+    // ....
 
     err := l.ReleaseLock(ctx)
     if err != nil {
