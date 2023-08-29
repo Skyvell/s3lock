@@ -84,7 +84,7 @@ To test and debug the library I used a few different tools:
 1. AWS console.
 
 Where applicable I used ChatGPT to quality check my code: improvements suggestions, find faulty logic etc. In addition, I used unit-tests in combination with logging to find bugs in code that did not behave as expected. I also used the AWS console to check the metadata of buckets etc.
-
+ 
 
 # 5. Additional thoughts and improvements
 
