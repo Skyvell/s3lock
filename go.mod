@@ -1,4 +1,4 @@
-module github.com/skyvell/locksv2
+module github.com/skyvell/s3lock
 
 go 1.21.0
 
