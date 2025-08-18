@@ -1,5 +1,8 @@
 # S3lock - A distributed locking mechanism using AWS S3
 
+**S3lock** is a lightweight, distributed locking mechanism built on **AWS S3 with versioning enabled**.  
+It allows multiple processes or services to safely coordinate access to shared resources by using S3 objects as lock tokens.  
+The library ensures locks are automatically released even in the event of failures or panics, making it a simple and reliable choice for distributed systems that already rely on AWS.
 
 ## Prerequisites
 - Access to a AWS account with a bucket and versioning enabled.
